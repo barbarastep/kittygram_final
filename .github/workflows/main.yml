@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: kittygram-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   backend_tests:
     name: Backend — PEP8 and tests
@@ -88,7 +91,7 @@ jobs:
 
       - name: Run frontend tests
         run: npm test -- --watchAll=false --runInBand
-        
+
   build_and_push:
     name: Build and push images
     runs-on: ubuntu-latest
@@ -132,3 +135,70 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: barbarastep/kittygram_gateway:latest
+
+  deploy:
+    name: Deploy to VM
+    runs-on: ubuntu-latest
+    needs: build_and_push
+    timeout-minutes: 15
+
+    env:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+
+      - name: Upload Compose file
+        run: |
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            docker-compose.production.yml \
+            "${SSH_USER}@${SSH_HOST}:/home/ubuntu/kittygram/docker-compose.production.yml"
+
+      - name: Deploy Kittygram
+        run: |
+          ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes "${SSH_USER}@${SSH_HOST}" <<'EOF'
+          set -eu
+          cd /home/ubuntu/kittygram
+
+          kittygram_compose() {
+            sudo -n docker compose -f docker-compose.production.yml "$@"
+          }
+
+          kittygram_compose config --quiet
+          kittygram_compose pull
+          kittygram_compose up -d --wait db
+
+          kittygram_compose run --rm --no-deps -T --interactive=false backend \
+            python manage.py migrate --noinput
+
+          kittygram_compose run --rm --no-deps -T --interactive=false backend \
+            sh -c 'python manage.py collectstatic --noinput && mkdir -p /static/backend_static && cp -r /app/collected_static/. /static/backend_static/'
+
+          kittygram_compose up -d --force-recreate
+
+          curl --fail --silent --show-error \
+            --retry 10 --retry-delay 3 --retry-connrefused --max-time 10 \
+            http://127.0.0.1:9000/admin/login/ --output /dev/null
+          EOF
+
+      - name: Check HTTPS website
+        run: |
+          curl --fail --silent --show-error \
+            --retry 5 --retry-delay 3 --retry-connrefused --max-time 10 \
+            https://kitty2gram.ddns.net/ --output /dev/null
+
+          curl --fail --silent --show-error --max-time 10 \
+            https://kitty2gram.ddns.net/backend_static/admin/css/base.css \
+            --output /dev/null
