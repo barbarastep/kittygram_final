@@ -1,0 +1,49 @@
+volumes:
+  pg_data:
+  static:
+  media:
+
+services:
+  db:
+    image: postgres:13
+    env_file: .env
+    restart: unless-stopped
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    image: barbarastep/kittygram_backend:latest
+    env_file: .env
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - static:/static
+      - media:/app/media
+
+  frontend:
+    image: barbarastep/kittygram_frontend:latest
+    command: cp -r /app/build/. /static/
+    volumes:
+      - static:/static
+
+  gateway:
+    image: barbarastep/kittygram_gateway:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9000:80"
+    depends_on:
+      backend:
+        condition: service_started
+      frontend:
+        condition: service_completed_successfully
+    volumes:
+      - static:/static:ro
+      - media:/media:ro
