@@ -8,9 +8,15 @@
 
 Taski на той же ВМ: https://taski25698.duckdns.org/
 
-Исходный проект предоставлен Яндекс Практикумом.
-Контейнеризация, CI/CD и развёртывание —
-[barbarastep](https://github.com/barbarastep).
+## Автор
+
+Автор проектной работы — [barbarastep](https://github.com/barbarastep).
+
+В рамках работы настроены контейнеризация, CI/CD и развёртывание проекта.
+
+Репозиторий: [kittygram_final](https://github.com/barbarastep/kittygram_final).
+
+Исходный код приложения предоставлен Яндекс Практикумом.
 
 ## Технологии
 
